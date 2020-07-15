@@ -74,7 +74,7 @@ export default {
     const isAutoModule = autoModules && isModuleFile(this.id)
     const supportModules = autoModules ? isAutoModule : options.modules
     if (supportModules) {
-      plugins.unshift(
+      plugins.push(
         require('postcss-modules')({
           // In tests
           // Skip hash in names since css content on windows and linux would differ because of `new line` (\r?\n)

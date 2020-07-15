@@ -29,6 +29,45 @@ export default {
       const sass = loadSassOrThrow()
       const render = pify(sass.render.bind(sass))
       const data = this.options.data || ''
+      const importer = (url, importer, done) => {
+        if (!moduleRe.test(url)) return done({ file: url })
+
+        const moduleUrl = url.slice(1)
+        const partialUrl = getUrlOfPartial(moduleUrl)
+
+        const options = {
+          basedir: path.dirname(importer),
+          extensions: ['.scss', '.sass', '.css']
+        }
+        const finishImport = id => {
+          done({
+            // Do not add `.css` extension in order to inline the file
+            file: id.endsWith('.css') ? id.replace(/\.css$/, '') : id
+          })
+        }
+
+        const next = () => {
+          // Catch all resolving errors, return the original file and pass responsibility back to other custom importers
+          done({ file: url })
+        }
+
+        // Give precedence to importing a partial
+        resolvePromise(partialUrl, options)
+          .then(finishImport)
+          .catch(error => {
+            if (
+              error.code === 'MODULE_NOT_FOUND' ||
+              error.code === 'ENOENT'
+            ) {
+              resolvePromise(moduleUrl, options)
+                .then(finishImport)
+                .catch(next)
+            } else {
+              next()
+            }
+          })
+      }
+
       return workQueue.add(() =>
         render({
           ...this.options,
@@ -36,46 +75,7 @@ export default {
           data: data + code,
           indentedSyntax: /\.sass$/.test(this.id),
           sourceMap: this.sourceMap,
-          importer: [
-            (url, importer, done) => {
-              if (!moduleRe.test(url)) return done({ file: url })
-
-              const moduleUrl = url.slice(1)
-              const partialUrl = getUrlOfPartial(moduleUrl)
-
-              const options = {
-                basedir: path.dirname(importer),
-                extensions: ['.scss', '.sass', '.css']
-              }
-              const finishImport = id => {
-                done({
-                  // Do not add `.css` extension in order to inline the file
-                  file: id.endsWith('.css') ? id.replace(/\.css$/, '') : id
-                })
-              }
-
-              const next = () => {
-                // Catch all resolving errors, return the original file and pass responsibility back to other custom importers
-                done({ file: url })
-              }
-
-              // Give precedence to importing a partial
-              resolvePromise(partialUrl, options)
-                .then(finishImport)
-                .catch(error => {
-                  if (
-                    error.code === 'MODULE_NOT_FOUND' ||
-                    error.code === 'ENOENT'
-                  ) {
-                    resolvePromise(moduleUrl, options)
-                      .then(finishImport)
-                      .catch(next)
-                  } else {
-                    next()
-                  }
-                })
-            }
-          ].concat(this.options.importer || [])
+          importer: [].concat(this.options.preImporter || [], importer, this.options.importer || [])
         })
           .then(result => {
             for (const file of result.stats.includedFiles) {
